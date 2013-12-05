@@ -1,5 +1,9 @@
-import Data.Map hiding (foldr, split,map, filter)
+{-# LANGUAGE ScopedTypeVariables, ViewPatterns #-}
+import Data.Map hiding (foldr, split,map, filter,null)
+
+import System.IO
 import System.Random hiding (split)
+import Text.CSV
 
 
 -- stepping structure
@@ -26,13 +30,13 @@ enumTa n = enumTa where
 
  
 -- collisions description
-type CS a b = [(E b, a)]
+type GlassS a b = [(E b, a)]
 
 -- apply collisions description to a state given a collision function
-runT :: T a b -> G a -> CS a b -> G a 
+runT :: T a b -> G a -> GlassS a b -> G a 
 runT f  = foldr (op f) 
 
-streamT :: T a b -> G a -> CS a b -> [G a]
+streamT :: T a b -> G a -> GlassS a b -> [G a]
 streamT f = scanl $ flip (op f) 
 
 op :: T a b -> (E b, a)  -> G a -> G a 
@@ -46,10 +50,10 @@ data W  = OO  -- shape is presented laid down and the first cut is vertical
          deriving (Show,Enum)
 
 -- glass model glass element
-type C = (Double, Double)
+type Glass = (Double, Double)
 
 -- glass model collision function
-rf :: T C W 
+rf :: T Glass W 
 rf OO (x,y) (a,b) = ((a-x,b),(x,b-y))
 rf OV (x,y) (a,b) = ((a-x,y),(a,b-y))
 rf VO (y,x) (a,b) = ((a-x,b),(x,b-y))
@@ -72,8 +76,8 @@ enumSol n = do
         y <- ys
         return $ zipWith E y x  
 
-enumerateSolve ::  [C] -> [C] -> [[[C]]]
-enumerateSolve mag cs = let
+solve ::  [Glass] -> [Glass] -> [[[Glass]]]
+solve mag cs = let
         tmag = fromList (zip [0..]  mag)
         in  validsSolve . map (\s -> map elems $ streamT rf tmag (zip s cs)) . filterSolve cs  $ enumSol (size tmag)
 
@@ -82,7 +86,18 @@ filterSolve y = takeWhile (\x -> length x == ly) . dropWhile (\x -> length x < l
         ly = length y
 
 validsSolve = filter (all (\(x,y) -> x * y >= 0) . concat)
-main = mapM_ print  $ (Prelude.filter (all (\(x,y) -> x * y >= 0) . concat)) $ enumerateSolve [(8,6)] [(3,4),(8,1),(1,5)] 
+
+
+parse [x,y] = (x,y)
+main = do
+	Right ls <- parseCSVFromFile "glass.csv"
+	let 	(mg,filter ((==) 2 . length) -> rq) = break ((/= 2) . length)  $ qs
+		qs =  map (map (fst . head)) . filter (all $ not . null) $ map (\l -> map (reads :: String -> [(Double,String)]) l) ls
+	print (mg,rq)
+	print . head $ solve (map parse mg) (map parse rq)
+
+
+-- mapM_ print  $ (Prelude.filter (all (\(x,y) -> x * y >= 0) . concat)) $ enumerateSolve [(8,6)] [(3,4),(8,1),(1,5)] 
         
 
 
