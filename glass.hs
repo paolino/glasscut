@@ -88,6 +88,8 @@ filterSolve y = takeWhile (\x -> length x == ly) . dropWhile (\x -> length x < l
 validsSolve = filter (all (\(x,y) -> x * y >= 0) . concat)
 
 
+
+
 parse [x,y] = (x,y)
 main = do
 	Right ls <- parseCSVFromFile "glass.csv"
