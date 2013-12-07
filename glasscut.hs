@@ -12,19 +12,22 @@ import Data.List hiding (delete)
 import Graphics.Gloss
 import Graphics.Gloss.Interface.IO.Animate
 import System.Environment
+import Data.Ord
+import Data.Function
+import Shuffle
 
 -- glass model glass element
 type Glass = (Float, Float)
 type Pos = (Float, Float)
 
-
+type PGlass = (Pos,Glass)
 type K a b = [(a,b)]
 
 -- stepping structure
-type Choice = ((Pos,Glass),(Pos,Glass))
+type Choice = (PGlass,PGlass)
 type Cutter = (Glass,K Int (K W Choice))
 type Cuts  = K Int Cutter
-type Rests = K Int (Pos,Glass)
+type Rests = K Int PGlass
 
 
 -- glass model collision parameter
@@ -40,10 +43,10 @@ rf OV (x,y) ((px,py), (a,b)) = (OV, (((px + x,py),(a-x,y)),((px,py + y),(a,b-y))
 rf VO (x,y) ((px,py), (a,b)) = (VO, (((px + y,py),(a-y,b)),((px,py + x),(y,b-x))))
 rf VV (x,y) ((px,py), (a,b)) = (VV, (((px + y,py),(a-y,x)),((px,py + x),(a,b-x))))
 
-testInc :: Glass -> (Pos,Glass) -> K W ((Pos,Glass),(Pos,Glass))
+testInc :: Glass -> PGlass -> K W (PGlass,PGlass)
 testInc c@(x,y) r@(_,(a,b)) = (if a >= x && b >= y then [rf OO c r,rf OV c r] else []) ++ (if b >= x && a >= y then [rf VO c r,rf VV c r] else [])
 
-data C 	= 	A (Int,(Pos,Glass))
+data C 	= 	A (Int,PGlass)
 	|	D Int
 
 delete :: Eq a => a -> K a b -> K a b
@@ -62,28 +65,29 @@ update :: C -> Cutter -> Cutter
 update (D i) (c,m) = (c,delete i m)
 update (A (i,g)) (c,m) = (c, (i,testInc c g):m)
 
-cut :: Int -> ((Pos,Glass),(Pos,Glass)) -> Rests -> (Rests,((Int,(Pos,Glass)),(Int,(Pos,Glass))))
+cut :: Int -> (PGlass,PGlass) -> Rests -> (Rests,((Int,PGlass),(Int,PGlass)))
 cut j (g1,g2) m = ((lk2,g2):(lk1,g1): delete j m, ((lk1,g1),(lk2,g2))) where
                 lk1  = (maximum . map fst $ m) + 1
 		lk2 = lk1 + 1
 
-correct :: Int -> (Int,(Pos,Glass)) -> (Int,(Pos,Glass)) -> Cutter -> Cutter
+correct :: Int -> (Int,PGlass) -> (Int,PGlass) -> Cutter -> Cutter
 correct i jg1 jg2 c =  foldr update c [A jg1,A jg2,D i]
 
 type Pick m a b = K b a  -> m (b,a)
 
-step :: Monad m => (forall a b . Pick m a b) -> Cuts -> Rests -> m ((W,(Int,Glass),(Pos,Glass)),(Cuts, Rests))
-step f cs rs = do
-	(i,(g,ct)) <- f cs
-	(j,cw) <- f ct
-	(w,(g1,g2)) <- f cw
-	
+step :: Cuts -> Rests -> IO ((W,(Int,Glass),PGlass),(Cuts, Rests))
+step  cs rs = do
+	cs' <- shuffle cs
+        let cs'' = sortBy (comparing  (\(_,(_,p)) -> length p)) cs'
+	(i,(g,ct)) 	<- return $ head  cs''
+	(j,cw) 		<- choiceIO ct
+	(w,(g1,g2)) 	<- choiceIO  cw
 	let  (rs',(ig1,ig2)) 	= cut j (g1,g2) rs
 	     cs' 		= map (second $ correct j ig1 ig2) (delete i cs)
 	     g' 		= select j rs
 	return ((w,(i,g),g'),(cs',rs'))
 	
-
+---------------------------------------------------------------------------------------------------------
 	
 parse [x,y] = (x,y)
 
@@ -93,7 +97,6 @@ mkRests = zip [0..] . snd . mapAccumL (\dx (x,y) -> (dx + x,((dx,0),(x,y)))) 0 .
 mkCuts :: Rests -> [[Float]] -> Cuts
 mkCuts rs = zip [0..] . map (\x -> foldr (update . A) (parse x,[]) rs)
 
-choiceIO xs = (xs !!) `fmap` randomRIO (0,length xs - 1)
 
 main = do
 	ls <- getArgs
@@ -109,41 +112,34 @@ main = do
 		case rq' of 
 			[] -> return ds
 			rq' -> do	
-				(d,(rq'',mg')) <- step choiceIO rq' mg 
-				
+				(d,(rq'',mg')) <- step rq' mg 
 				r rq'' mg' $ d:ds
 
 	best <- newTVarIO []
 	current <- newTVarIO []
-	let br l h = pictures [
-		color (makeColor 0.5 0.5 0.5 1) $ rectangleSolid l h,
+	let br r l h = pictures [
+		color (makeColor r 0.5 0.5 1) $ rectangleSolid l h,
 		rectangleWire l h 
 		]
-
+        let rend r = scale 100 100 . pictures .
+					map (\(w,(_,(l,h)),((x,y),_)) -> case w of
+						OO -> translate (x + l/2) (y + h/2) $ br r l h 
+						OV -> translate (x + l/2) (y + h/2) $ br r l h 
+						VO -> translate (x + h/2) (y + l/2) $ br r h l
+						VV -> translate (x + h/2) (y + l/2) $ br r h l
+						) 
 	let pat = do
-		ds <- atomically $ readTVar best
-		let a = scale 100 100 $ pictures $
-					map (\(w,(_,(l,h)),((x,y),_)) -> case w of
-						OO -> translate (x + l/2) (y + h/2) $ br l h
-						OV -> translate (x + l/2) (y + h/2) $ br l h 
-						VO -> translate (x + h/2) (y + l/2) $ br h l
-						VV -> translate (x + h/2) (y + l/2) $ br h l
-						) ds 
-		ds <- atomically $ readTVar current
-		let b = scale 100 100 $ pictures $
-					map (\(w,(_,(l,h)),((x,y),_)) -> case w of
-						OO -> translate (x + l/2) (y + h/2) $ br l h 
-						OV -> translate (x + l/2) (y + h/2) $ br l h 
-						VO -> translate (x + h/2) (y + l/2) $ br h l
-						VV -> translate (x + h/2) (y + l/2) $ br h l
-						) ds 
-		return $ pictures [a,translate 650 0 b]
+		a <- fmap (rend 0.8) . atomically $ readTVar best
+		b <- fmap (rend 0.4) . atomically $ readTVar current
+		return $ pictures [a,translate 0 400 b]
+	let area = foldr (\(_,(_,(x,y)),_) a -> a + (x*y)) 0
+
 	let cy n k = do
 		ds <- r rq' mg' [] 
-		let n' = length ds
+		let n' = area ds
 		putStr (show k ++ "\r") 
 		hFlush stdout
-		case n' > n of 
+		case n' >= n of 
 			True ->  do 
 				putStr "\n" 
 				print n'
@@ -153,13 +149,7 @@ main = do
 				when (k `mod` frames == 0) $ atomically (writeTVar current ds)
 				cy n (k + 1)
 	forkIO $ cy 0 0
-	animateIO (InWindow "glasscut"  (1000,300) (0,0)) (makeColor 1 1 1 1) $ (\_ -> pat)
-	-- print . head $ solve (map parse mg) (map parse rq)
-
-
-
-
--- mapM_ print  $ (Prelude.filter (all (\(x,y) -> x * y >= 0) . concat)) $ enumerateSolve [(8,6)] [(3,4),(8,1),(1,5)] 
+	animateIO (InWindow "glasscut"  (1300,300) (0,0)) (makeColor 1 1 1 1) $ (\_ -> pat)
         
 
 
