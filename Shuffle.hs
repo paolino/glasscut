@@ -1,3 +1,4 @@
+{-# LANGUAGE MultiParamTypeClasses, FlexibleInstances #-}
 module Shuffle where
 
 import System.Random
@@ -20,4 +21,5 @@ shuffle xs = do
     newArray :: Int -> [a] -> IO (IOArray Int a)
     newArray n xs =  newListArray (1,n) xs
 
-choiceIO xs = (xs !!) `fmap` randomRIO (0,length xs - 1)
+
+	
