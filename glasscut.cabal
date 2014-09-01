@@ -19,7 +19,7 @@ executable glasscut
   main-is: glasscut.hs
   -- other-modules:       
   -- other-extensions:    
-  build-depends:       base >=4.6 && <4.7,gloss,stm,csv,random,array
+  build-depends:       base,gloss,stm,csv,random,array
   -- hs-source-dirs:      
   default-language:    Haskell2010
   ghc-options: -threaded -O2
